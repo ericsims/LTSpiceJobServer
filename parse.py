@@ -5,13 +5,14 @@ from threading import Thread
 from time import time
 
 LTSpicePath = 'C:\Program Files\LTC\LTspiceXVII\XVIIx64.exe'
-file = 'example LTSpice sims/BuckBoost'
+##file = 'example LTSpice sims/BuckBoost'
+file = 'example LTSpice sims/MonteCarlo'
 
 returned_value = subprocess.run([LTSpicePath, '-netlist', file+'.asc'], shell=True, check=True)
 
 print('returned value:', returned_value)
 
-jobslist=[]
+runslist=[]
 
 lines = []
 
@@ -27,7 +28,7 @@ class LTSpiceWorker(Thread):
             LTSpicePath_, job = self.queue.get()
             try:
                 returned_value = subprocess.run([LTSpicePath_, '-b', job], shell=True, check=True)
-                print('job:{} returned:{}'.format(job,returned_value))
+##                print('job:{} returned:{}'.format(job,returned_value))
             finally:
                 self.queue.task_done()
 
@@ -141,27 +142,37 @@ with open(file+".net", 'r') as fp:
         out = open('j{}.net'.format(i),'w')
         for line in output[i]:
             out.write('{}\r\n'.format(line))
-        jobslist.append(str(out.name))
+        runslist.append(str(out.name))
         out.close()
- 
-start = time()
-##for job in jobslist:
+
+def execRuns(runList_, workerCount_):
+    print()
+    print('doing {} runs with {} workers'.format(len(runList_), workerCount_))
+    start = time()
+    queue = Queue()
+    for x in range(workerCount_):
+        worker = LTSpiceWorker(queue)
+        worker.daemon = True
+        worker.start()
+
+    for run in runList_:
+        queue.put((LTSpicePath, run))
+    queue.join()
+    end = time()
+    elapsed = end - start
+    print('elapsed: ', elapsed)
+
+workerCounts = [1,2,4,6,8,10,12,14,16,20,24,28,32]
+##workerCounts = [40,48,64,128]
+
+for x in workerCounts:
+    execRuns(runslist, x)
+##for job in runslist:
 ##    returned_value = subprocess.run([LTSpicePath, '-b', job], shell=True, check=True)
 ##    print('job:{} returned:{}'.format(job,returned_value))
 ##    end = time()
 ##    elapsed = end - start
 ##    print('elapsed: ', elapsed)
 
-queue = Queue()
-for x in range(32):
-    worker = LTSpiceWorker(queue)
-    worker.daemon = True
-    worker.start()
 
-for job in jobslist:
-    queue.put((LTSpicePath, job))
-queue.join()
-end = time()
-elapsed = end - start
-print('elapsed: ', elapsed)
     

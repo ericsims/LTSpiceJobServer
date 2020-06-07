@@ -133,3 +133,7 @@ dmypy.json
 *.raw
 *.net
 *.log
+*.plt
+
+# Temp Files
+*#
