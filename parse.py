@@ -9,14 +9,13 @@ import string
 import random
 
 LTSpicePath = 'C:\Program Files\LTC\LTspiceXVII\XVIIx64.exe'
-##file = 'example LTSpice sims/BuckBoost'
-file = 'example LTSpice sims/MonteCarlo'
+file = 'example LTSpice sims/BuckBoost'
+##file = 'example LTSpice sims/MonteCarlo'
 
 returned_value = subprocess.run([LTSpicePath, '-netlist', file+'.asc'], shell=True, check=True)
 
 print('returned value:', returned_value)
 
-runslist=[]
 lines = []
 
 stepvals = []
@@ -33,7 +32,7 @@ class LTSpiceWorker(Thread):
             # Get the work from the queue and expand the tuple
             LTSpicePath_, job = self.queue.get()
             try:
-                returned_value = subprocess.run([LTSpicePath_, '-b', job], shell=True, check=True)
+                returned_value = subprocess.run([LTSpicePath_, '-b', '{}.net'.format(job)], shell=True, check=True)
 ##                print('job:{} returned:{}'.format(job,returned_value))
             finally:
                 self.queue.task_done()
@@ -145,26 +144,18 @@ with open(file+".net", 'r') as fp:
 
     print()
     
-##    output = []
-##    output.append([])
-##    evalLines(output, output[0], 0, len(lines))
-##    for i in range(0, len(output)):
-##        out = open('j{}.net'.format(i),'w')
-##        for line in output[i]:
-##            out.write('{}\r\n'.format(line))
-##        runslist.append(str(out.name))
-##        out.close()
-
 def execRuns(workerCount_):
     runList_ = []
     combinations = [list(sub) for sub in list(itertools.product(*stepvals))[:]]
     numberofsteps = len(combinations)
+    indexlist = []
     if numberofsteps > 1:
         lookuptable = []
         j = 0
         s = 0
         for vi in range(numberofsteps):
-    ##        print('j{}, s{}, vi{}, v{}'.format(j,s,vi,combinations[vi]))
+            indexlist.append((j,s))
+            print('j{}, s{}, vi{}, v{}'.format(j,s,vi,combinations[vi]))
             if not (len(lookuptable) > j):
                 lookuptable.append([])
             lookuptable[j].append(combinations[vi])
@@ -174,7 +165,7 @@ def execRuns(workerCount_):
                 s += 1
         for j in range(len(lookuptable)):
             out = open('j{}.net'.format(j),'w')
-            runList_.append(str(out.name))
+            runList_.append('j{}'.format(j))
             newlines = lines[:]
 ##            print()
 ##            print('j{}'.format(j))
@@ -200,7 +191,9 @@ def execRuns(workerCount_):
                 out.write('{}\n'.format(line))
             out.close()
     else:
+        indexlist.append((0,0))
         out = open('j0.net','w')
+        runList_.append('j0')
         for line in lines:
            out.write('{}\n'.format(line))
         out.close()
@@ -222,19 +215,51 @@ def execRuns(workerCount_):
     end = time()
     elapsed = end - start
     print('elapsed: ', elapsed)
+    return (runList_,indexlist)
 
-workerCounts = [1,2,4,8,12,16,24,32,48,64,128]
-##workerCounts = [16]
+(runs, indexlist) = execRuns(16)
 
-for x in workerCounts:
-    execRuns(x)
+import ltspice
+import struct
+
+outdata = [None] * len(runs)
+for r in range(len(runs)):
+    outdata[r] = ltspice.Ltspice('{}.raw'.format(runs[r]))
+    outdata[r].parse()
+
+totalpoints = 0
+for dat in outdata:
+    totalpoints += dat._point_num
+
+##totalpoints = outdata[0]._point_num
+# TODO: this only works for TRANS...
+out = open('outdata.raw','w', encoding='UTF16', newline='')
+out.write('Title: * {}\n'.format('i forgot what the input file was'))
+out.write('Date: {}\n'.format(outdata[0].date.strip()))
+out.write('Plotname: {}\n'.format(outdata[0].plot_name.strip())) # TODO: copying this name might not always work
+out.write('Flags: {}\n'.format(outdata[0].flags.strip())) # TODO: copying this name might not always work
+out.write('No. Variables: {}\n'.format(outdata[0]._variable_num))
+out.write('No. Points: {}\n'.format(totalpoints))
+out.write('Offset: {}\n'.format('0.0000000000000000e+000')) # not sure how to deal with this yet
+out.write('Command: {}\n'.format('idk does this even matter')) # does this matter?
+out.write('Variables:\n')
+for i in range(outdata[0].getVariableNumber()):
+    out.write('\t{}\t{}\t{}\n'.format(i, outdata[0].getVariableNames()[i], outdata[0].getVariableTypes()[i]))
+out.write('Binary:\n') # again, this might now always work
+out.close()
+out = open('outdata.raw','ab')
+##indexlist=[(14,0),(15,0)]
+for (j,s) in indexlist:
+    print('j:{} s{} {} - {}'.format(j,s,outdata[j]._case_split_point[s],outdata[j]._case_split_point[s+1]))
+    for l in range(outdata[j]._case_split_point[s],outdata[j]._case_split_point[s+1]):
+        out.write(struct.pack('d',outdata[j].time_raw[l]))
+        out.write(outdata[j].data_raw[l][2:].tobytes())
+##        print('{} {} {}'.format(l,struct.pack('d',outdata[0].time_raw[l]),outdata[0].data_raw[l][2:].tobytes()))
+    out.flush()
+out.close()
+
+##if steps > 1:
+    # stepped sim
     
-##for job in runslist:
-##    returned_value = subprocess.run([LTSpicePath, '-b', job], shell=True, check=True)
-##    print('job:{} returned:{}'.format(job,returned_value))
-##    end = time()
-##    elapsed = end - start
-##    print('elapsed: ', elapsed)
-
 
     
